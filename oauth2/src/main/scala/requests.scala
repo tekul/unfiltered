@@ -20,6 +20,7 @@ sealed trait AccessRequest
  */
 case class AuthorizationCodeRequest[T](
   req: Req[T],
+  responseTypes: Seq[String],
   clientId: String,
   redirectURI: String,
   scope: Seq[String],
@@ -41,7 +42,7 @@ case class ImplicitAuthorizationRequest[T](
 
 case class IndeterminateAuthorizationRequest[T](
   req: Req[T],
-  responseType: String,
+  responseTypes: Seq[String],
   clientId: String,
   redirectURI: String,
   scope: Seq[String],

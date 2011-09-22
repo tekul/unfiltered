@@ -41,7 +41,7 @@ case class MockAuthServerProvider(cli: MockClient, owner: MockResourceOwner)
 
     def exchangeAuthorizationCode(other: Token): Token = mock
 
-    def generateAuthorizationCode(owner: ResourceOwner, client: Client,
+    def generateAuthorizationCode(owner: ResourceOwner, client: Client, responseTypes: Seq[String],
                           scope: Seq[String], redirectURI: String) =
                             mock.value
     def generateClientToken(client: Client, scope: Seq[String]) = mock

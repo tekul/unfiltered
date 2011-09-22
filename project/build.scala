@@ -35,9 +35,9 @@ object Unfiltered extends Build {
   val buildSettings = Defaults.defaultSettings ++ Seq(
     organization := "net.databinder",
     name := "Unfiltered",
-    version := "0.5.0",
+    version := "0.5.0-OPENID",
     crossScalaVersions := Seq("2.8.0", "2.8.1", "2.9.0", "2.9.0-1", "2.9.1"),
-    scalaVersion := "2.8.1",
+    scalaVersion := "2.9.1",
     publishTo := Some("Scala Tools Nexus" at "http://nexus.scala-tools.org/content/repositories/releases/"),
     credentials += Credentials(Path.userHome / ".ivy2" / ".credentials"),
     scalacOptions ++= Seq("-Xcheckinit", "-encoding", "utf8"),
@@ -49,7 +49,7 @@ object Unfiltered extends Build {
             settings = buildSettings) aggregate(
             library, filters, uploads, util, jetty, jettyAjpProject,
             netty, nettyServer, json, specHelpers, scalaTestHelpers,
-            scalate, websockets, oauth, agents)
+            scalate, websockets, oauth, oauth2, mac, agents)
 
   lazy val library: Project =
     Project("unfiltered", file("library"),

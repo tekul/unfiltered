@@ -1,12 +1,10 @@
 package unfiltered.oauth2
 
-import unfiltered._
 import unfiltered.request._
 import unfiltered.response._
-import unfiltered.request.{HttpRequest => Req}
 import unfiltered.filter.request.ContextPath // work on removing this dep
 
-object OAuthorization {
+object                                                                                                                                                                                   OAuthorization {
 
   val RedirectURI = "redirect_uri"
   val ClientId = "client_id"
@@ -48,6 +46,16 @@ object OAuthorization {
   val ExpiresIn = "expires_in"
 }
 
+object OpenID {
+  /**
+   * Additional OpenID response types
+   *
+   * @see http://openid.net/specs/openid-connect-messages-1_0.html#auth_req
+   */
+  val IdToken = "id_token"
+  val NoResponse = "none"
+}
+
 /** Paths for authorization and token access */
 trait AuthorizationEndpoints {
   val AuthorizePath: String
@@ -83,21 +91,25 @@ case class OAuthorization(val auth: AuthorizationServer) extends Authorized
 trait Authorized extends AuthorizationProvider
   with AuthorizationEndpoints with Formatting
   with ValidationMessages with unfiltered.filter.Plan {
-  import QParams._
+
+  import unfiltered.request.QParams._
+  import unfiltered.request.Params
   import OAuthorization._
+  import OpenID._
 
   implicit def s2qs(uri: String) = new {
      def ?(qs: String) = "%s%s%s" format(uri, if(uri.indexOf("?") > 0) "&" else "?", qs)
   }
 
-  protected def accessResponder(accessToken: String, kind: String, expiresIn: Option[Int], refreshToken: Option[String], scope:Seq[String]) =
+  protected def accessResponder(accessToken: String, kind: String, expiresIn: Option[Int], refreshToken: Option[String], scope:Seq[String], idToken: Option[String]) =
     Json(Map(AccessTokenKey -> accessToken, TokenType -> kind) ++
         expiresIn.map (ExpiresIn -> (_:Int).toString) ++
         refreshToken.map (RefreshToken -> _) ++
         (scope match {
           case Seq() => None
           case xs => Some(scopeEncoder(xs))
-        }).map (Scope -> _)) ~> CacheControl("no-store")
+        }).map (Scope -> _) ++
+        idToken.map(IdToken -> _)) ~> CacheControl("no-store")
 
   protected def errorResponder(error: String, desc: String, euri: Option[String], state: Option[String]) =
     Json(Map(Error -> error, ErrorDescription -> desc) ++
@@ -107,6 +119,8 @@ trait Authorized extends AuthorizationProvider
   private def scopeDecoder(raw: String) = raw.replace("""\s+"""," ").split(" ").toSeq
 
   private def scopeEncoder(scopes: Seq[String]) = scopes.mkString("+")
+
+  private val Whitespace = new scala.util.matching.Regex("\\s+")
 
   def intent = {
 
@@ -119,11 +133,12 @@ trait Authorized extends AuthorizationProvider
         state        <- lookup(State) is optional[String, String]
       } yield {
 
-         (redirectURI.get, responseType.get) match {
+        val responseTypes = Whitespace.split(responseType.get)
+        val ruri = redirectURI.get
 
            // authorization code flow
-           case (ruri, Code) =>
-             auth(AuthorizationCodeRequest(req, clientId.get, ruri, scope.getOrElse(Nil), state.get)) match {
+        if (responseTypes.contains(Code)) {
+             auth(AuthorizationCodeRequest(req, responseTypes, clientId.get, ruri, scope.getOrElse(Nil), state.get)) match {
 
                case ServiceResponse(resp) => resp
 
@@ -141,12 +156,11 @@ trait Authorized extends AuthorizationProvider
 
                case _ => BadRequest
              }
-
+        } else if (responseTypes.contains(TokenKey)) {
            // implicit token flow
-           case (ruri, TokenKey) =>
              auth(ImplicitAuthorizationRequest(req, clientId.get, ruri, scope.getOrElse(Nil), state.get)) match {
                case ServiceResponse(cr) => cr
-               case ImplicitAccessTokenResponse(accessToken, tokenType, expiresIn, scope, state) =>
+               case ImplicitAccessTokenResponse(accessToken, tokenType, expiresIn, scope, state, idToken) =>
                    val frag = qstr(
                      Map(AccessTokenKey -> accessToken, TokenType -> tokenType) ++
                      expiresIn.map(ExpiresIn -> (_:Int).toString) ++
@@ -165,10 +179,9 @@ trait Authorized extends AuthorizationProvider
                  )))
                case _ => BadRequest
              }
-
+        } else {
            // unsupported grant type
-           case (ruri, unsupported) =>
-             auth(IndeterminateAuthorizationRequest(req, unsupported, clientId.get, ruri, scope.getOrElse(Nil), state.get)) match {
+             auth(IndeterminateAuthorizationRequest(req, responseTypes, clientId.get, ruri, scope.getOrElse(Nil), state.get)) match {
                case ServiceResponse(cr) => cr
                case ErrorResponse(error, desc, euri, state) =>
                  Redirect(ruri ? qstr(
@@ -178,7 +191,7 @@ trait Authorized extends AuthorizationProvider
                  ))
                case _ => BadRequest
              }
-         }
+        }
       }
 
       expected(params) orFail { errs =>
@@ -218,9 +231,9 @@ trait Authorized extends AuthorizationProvider
 
           case ClientCredentials =>
             auth(ClientCredentialsRequest(clientId.get, clientSecret.get, scope.getOrElse(Nil))) match {
-              case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _) =>
+              case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _, idToken) =>
                 accessResponder(
-                  accessToken, kind, expiresIn, refreshToken, scope
+                  accessToken, kind, expiresIn, refreshToken, scope, idToken
                 )
               case ErrorResponse(error, desc, euri, state) =>
                 errorResponder(error, desc, euri, state)
@@ -230,9 +243,9 @@ trait Authorized extends AuthorizationProvider
             (userName.get, password.get) match {
               case (Some(u), Some(pw)) =>
                 auth(PasswordRequest(u, pw, clientId.get, clientSecret.get, scope.getOrElse(Nil))) match {
-                  case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _) =>
+                  case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _, idToken) =>
                     accessResponder(
-                      accessToken, kind, expiresIn, refreshToken, scope
+                      accessToken, kind, expiresIn, refreshToken, scope, None
                     )
                   case ErrorResponse(error, desc, euri, state) =>
                     errorResponder(error, desc, euri, state)
@@ -249,9 +262,9 @@ trait Authorized extends AuthorizationProvider
             refreshToken.get match {
               case Some(rtoken) =>
                 auth(RefreshTokenRequest(rtoken, clientId.get, clientSecret.get, scope.getOrElse(Nil))) match {
-                  case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _) =>
+                  case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _, _) =>
                      accessResponder(
-                       accessToken, kind, expiresIn, refreshToken, scope
+                       accessToken, kind, expiresIn, refreshToken, scope, None
                      )
                   case ErrorResponse(error, desc, euri, state) =>
                     errorResponder(error, desc, euri, state)
@@ -263,9 +276,9 @@ trait Authorized extends AuthorizationProvider
             (code.get, redirectURI.get) match {
               case (Some(c), Some(r)) =>
                 auth(AccessTokenRequest(c, r, clientId.get, clientSecret.get)) match {
-                  case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _) =>
+                  case AccessTokenResponse(accessToken, kind, expiresIn, refreshToken, scope, _, idToken) =>
                     accessResponder(
-                      accessToken, kind, expiresIn, refreshToken, scope
+                      accessToken, kind, expiresIn, refreshToken, scope, idToken
                     )
                   case ErrorResponse(error, desc, euri, state) =>
                     errorResponder(error, desc, euri, state)

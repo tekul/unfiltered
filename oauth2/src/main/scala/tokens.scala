@@ -25,6 +25,7 @@ trait Token {
   def refresh: Option[String]
   def expiresIn: Option[Int]
   def scopes: Seq[String]
+  def idToken: Option[String]
 }
 
 /**
@@ -80,7 +81,7 @@ trait TokenStore {
    * and redirect uri for a given resource owner.
    */
   def generateAuthorizationCode(
-        owner: ResourceOwner, client: Client,
+        owner: ResourceOwner, client: Client, responseTypes: Seq[String],
         scope: Seq[String], redirectUri: String): String
 
   /**
