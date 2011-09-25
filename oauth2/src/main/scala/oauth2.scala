@@ -11,12 +11,12 @@ object OAuthResourceOwner {
   import javax.servlet.http.HttpServletRequest
   import unfiltered.request.HttpRequest
 
-  def unapply[T <: HttpServletRequest](r: HttpRequest[T]): Option[(String, Option[String])] =
+  def unapply[T <: HttpServletRequest](r: HttpRequest[T]): Option[(String, Seq[String])] =
     r.underlying.getAttribute(XAuthorizedIdentity) match {
       case null => None
       case id: String => r.underlying.getAttribute(XAuthorizedScopes) match {
-         case null => Some((id, None))
-         case scopes: String => Some((id, Some(scopes)))
+         case null => Some((id, Nil))
+         case scopes: Seq[String] => Some((id, scopes))
       }
     }
 }
